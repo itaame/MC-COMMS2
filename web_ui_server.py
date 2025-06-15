@@ -1,285 +1,185 @@
-from flask import Flask, render_template_string, jsonify, request
+from flask import Flask, render_template_string, jsonify, request, url_for
 import json, os, requests, time, sys
 
-# --------------------------------- configuration ---------------------------------
+# ------------------------------ CONFIG ----------------------------------
 from config_dialog import read_config, write_config
 config = read_config() or {}
-role = config.get("role", "FLIGHT")
+role   = config.get("role", "FLIGHT")
+
+ROLES = ['FLIGHT','CAPCOM','FAO','BME','CPOO','SCIENCE','EVA']
+
+# Build HTML option tags for roles once
+options = "".join(f"<option value='{r}'>{r}</option>" for r in ROLES)
+
+# Load loops for the selected role
 def load_loops(r):
-    lf = os.path.join("LOOPS", f"loops_{r.upper()}.txt")
+    path = os.path.join('LOOPS', f'loops_{r.upper()}.txt')
     try:
-        with open(lf, "r") as f:
+        with open(path, 'r') as f:
             return json.load(f)
     except Exception as e:
-        print(f"Error loading {lf}: {e}")
+        print('Loop load error', e)
         return []
 
 LOOPS = load_loops(role)
 
-# --------------------------------- bot pool ---------------------------------
+# ------------------------------ BOT POOL ---------------------------------
 BOTS = [
     {"name": "BOT1", "port": 6001},
     {"name": "BOT2", "port": 6002},
     {"name": "BOT3", "port": 6003},
 ]
 
-bot_pool = {b['name']: {'port': b['port'], 'assigned': None, 'last_used': 0} for b in BOTS}
-loop_states = {loop['name']: (0, None) for loop in LOOPS}  # state, bot
+bot_pool   = {b['name']: {**b, 'assigned': None, 'last_used': 0} for b in BOTS}
+loop_states = {l['name']: (0, None) for l in LOOPS}
 
-def update_config(new_cfg):
-    global config, role, LOOPS, loop_states
-    config = new_cfg
-    role = config.get("role", "FLIGHT")
+def refresh_state_from_role():
+    global LOOPS, loop_states
     LOOPS = load_loops(role)
-    loop_states = {loop['name']: (0, None) for loop in LOOPS}
+    loop_states = {l['name']: (0, None) for l in LOOPS}
 
 def find_idle_bot():
-    idle = [(n, d) for n, d in bot_pool.items() if d['assigned'] is None]
+    idle = [n for n, d in bot_pool.items() if d['assigned'] is None]
     if not idle:
         return None
-    idle.sort(key=lambda x: x[1]['last_used'])
-    return idle[0][0]
+    idle.sort(key=lambda n: bot_pool[n]['last_used'])
+    return idle[0]
 
-# --------------------------------- flask ---------------------------------
+# ------------------------------ FLASK APP --------------------------------
 app = Flask(__name__)
 
-TEMPLATE = r"""
+# ------------------------------ TEMPLATES --------------------------------
+MAIN_HTML = r"""
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Voice Loops</title>
-  <style>
-    :root {
-      --bg:#1e1e1e; --panel:#2b2b2b; --txt:#ddd; --accent-listen:#325c8d; --accent-talk:#3c6d2d; --danger:#b41b1b;
-    }
-    *{box-sizing:border-box}
-    body{margin:0;font-family:sans-serif;background:var(--bg);color:var(--txt);}
-    #controls{display:flex;align-items:center;padding:10px;background:var(--panel)}
-    select,button{margin-right:10px;padding:6px 10px;background:#3a3a3a;border:none;border-radius:4px;color:var(--txt)}
-    select:hover,button:hover{background:#4a4a4a;cursor:pointer}
-    #waveCanvas{width:150px;height:40px;border:1px solid #444;border-radius:4px;margin-left:auto}
-
-    #grid{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;padding:18px;grid-auto-rows:220px}
-    .card{position:relative;background:var(--panel);border-radius:12px;box-shadow:0 0 6px rgba(0,0,0,.6);height:100%%;overflow:hidden}
-    .card.off{background:var(--panel)}
-    .card.listen{background:var(--accent-listen)}
-    .card.talk{background:var(--accent-talk)}
-
-    .loop-name{position:absolute;top:50%%;left:50%%;transform:translate(-50%%,-50%%);text-align:center;font-weight:600;line-height:1.2;padding:0 4px}
-    .privileges{position:absolute;top:8px;left:10px;font-size:1rem}
-    .count{position:absolute;top:8px;right:10px;font-size:.9rem}
-
-    .vol-slider{position:absolute;bottom:10px;left:10px;width:55%%}
-    .off-btn{position:absolute;bottom:6px;right:10px;padding:4px 10px;background:var(--danger);border:none;border-radius:4px;color:#fff;font-weight:600}
-    .off-btn:hover{filter:brightness(1.1);cursor:pointer}
-
-    #logo{position:fixed;bottom:10px;right:10px;height:60px;opacity:.6}
-  </style>
-</head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MCC Voice Loops</title>
+<style>
+ :root{--bg:#1e1e1e;--panel:#2b2b2b;--txt:#ddd;--listen:#325c8d;--talk:#3c6d2d;--danger:#b41b1b}
+ *{box-sizing:border-box}
+ body{margin:0;background:var(--bg);color:var(--txt);font-family:sans-serif}
+ #controls{display:flex;align-items:center;padding:10px;background:var(--panel)}
+ select,button{margin-right:10px;padding:6px 10px;background:#3a3a3a;border:none;border-radius:4px;color:var(--txt)}
+ select:hover,button:hover{background:#4a4a4a;cursor:pointer}
+ #wave{width:150px;height:40px;margin-left:auto;border:1px solid #444;border-radius:4px}
+ #grid{display:grid;grid-template-columns:repeat(4,1fr);grid-auto-rows:220px;gap:18px;padding:18px}
+ .card{position:relative;background:var(--panel);border-radius:12px;box-shadow:0 0 6px #000a;overflow:hidden}
+ .listen{background:var(--listen)} .talk{background:var(--talk)}
+ .priv{position:absolute;top:8px;left:10px;font-size:1rem}
+ .cnt{position:absolute;top:8px;right:10px;font-size:.9rem}
+ .name{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;font-weight:600;padding:0 4px}
+ .vol{position:absolute;bottom:10px;left:10px;width:55%}
+ .off{position:absolute;bottom:6px;right:10px;padding:4px 10px;background:var(--danger);border:none;border-radius:4px;color:#fff;font-weight:600}
+ #logo{position:fixed;bottom:10px;right:10px;height:60px;opacity:.6}
+</style></head>
 <body>
   <div id="controls">
-    <label>Input:<select id="inDevice"></select></label>
-    <label>Output:<select id="outDevice"></select></label>
-    <button id="delayBtn">Delay</button>
-    <canvas id="waveCanvas"></canvas>
+    <label>Input:<select id="inDev"></select></label>
+    <label>Output:<select id="outDev"></select></label>
+    <button id="delay">Delay</button>
+    <canvas id="wave"></canvas>
   </div>
   <div id="grid"></div>
   <img id="logo" src="{{ url_for('static', filename='logo2.png') }}" alt="logo">
 <script>
-let LOOPS=[], delayEnabled=false;
-
-// ------------------- util -------------------
-const primaryPort={{port}};
-function getBot(idx){return {{bots}}[idx %% {{bots}}.length];}
-
-// ------------------- init -------------------
-async function init(){
-  const cfg=await (await fetch('/api/config')).json(); LOOPS=cfg.loops;
-  await enumerateDevices(); startAudioMonitor(); buildGrid(); setDelayHandler(); await refresh(); setInterval(refresh,1000);
-}
-
-// ------------------- grid -------------------
-function buildGrid(){
-  const grid=document.getElementById('grid'); grid.innerHTML='';
-  LOOPS.forEach((loop,idx)=>{
-    const card=document.createElement('div'); card.className='card off'; card.dataset.loop=loop.name;
-    const priv=`<span class='privileges'>${loop.can_listen?'🎧':''}${loop.can_talk?'🎤':''}</span>`;
-    card.innerHTML=`${priv}<span class='count'>👥0</span><div class='loop-name'>${loop.name}</div><input type='range' min='0' max='1' step='0.01' value='0.5' class='vol-slider'><button class='off-btn'>OFF</button>`;
-
-    card.addEventListener('click',e=>{if(e.target===card) act('toggle',loop.name);});
-    card.querySelector('.off-btn').addEventListener('click',e=>{e.stopPropagation(); act('off',loop.name);});
-    const slider=card.querySelector('.vol-slider');
-    const bot=getBot(idx);
-    slider.addEventListener('input',e=>{e.stopPropagation(); fetch(`http://127.0.0.1:${bot.port}/set_volume`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({volume:e.target.value})});});
-
-    grid.append(card);
-  });
-}
-
-// ------------------- UI Actions -------------------
-async function act(action,loop){await fetch('/api/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,loop})}); await refresh();}
-function setDelayHandler(){const btn=document.getElementById('delayBtn'); btn.onclick=async()=>{delayEnabled=!delayEnabled;btn.style.background=delayEnabled?'#43d843':'#c22c2c'; await fetch('/api/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'delay',enabled:delayEnabled})});};}
-
-// ------------------- polling -------------------
-async function refresh(){const res=await fetch('/api/status'); const info=await res.json(); LOOPS.forEach(loop=>{const card=document.querySelector(`[data-loop="${loop.name}"]`); if(!card)return; card.querySelector('.count').textContent=`👥${info.user_counts[loop.name]||0}`; card.classList.remove('off','listen','talk'); const st=info.states[loop.name]||0; card.classList.add(st===1?'listen':st===2?'talk':'off');});}
-
-// ------------------- devices -------------------
-async function enumerateDevices(){try{const devs=await navigator.mediaDevices.enumerateDevices(); const inSel=document.getElementById('inDevice'),outSel=document.getElementById('outDevice'); devs.filter(d=>d.kind==='audioinput').forEach((d,i)=>inSel.add(new Option(d.label||`Mic ${i}`,d.deviceId))); devs.filter(d=>d.kind==='audiooutput').forEach((d,i)=>outSel.add(new Option(d.label||`Spkr ${i}`,d.deviceId))); inSel.onchange=()=>changeDev('in',inSel.value); outSel.onchange=()=>changeDev('out',outSel.value);}catch(e){console.error(e);}}
-function changeDev(type,id){fetch(`http://127.0.0.1:${primaryPort}/device_${type}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device:id})});}
-
-// ------------------- waveform -------------------
-async function startAudioMonitor(){try{const stream=await navigator.mediaDevices.getUserMedia({audio:true}); const ctxA=new(window.AudioContext||window.webkitAudioContext)(); const src=ctxA.createMediaStreamSource(stream); const analyser=ctxA.createAnalyser(); analyser.fftSize=256; src.connect(analyser); const data=new Uint8Array(analyser.fftSize); const ctx=document.getElementById('waveCanvas').getContext('2d'); (function draw(){requestAnimationFrame(draw); analyser.getByteTimeDomainData(data); ctx.clearRect(0,0,150,40); ctx.beginPath(); for(let i=0;i<data.length;i++){const x=i*150/data.length; const y=(data[i]/128)*20; i?ctx.lineTo(x,y):ctx.moveTo(x,y);} ctx.strokeStyle='#4a4a4a'; ctx.stroke();})();}catch(e){console.error(e);}}
-
-// ------------------- start -------------------
-document.addEventListener('DOMContentLoaded',init);
-</script>
-</body>
-</html>
+ const LOOPS = {{ loops|tojson }};
+ const BOTS  = {{ bots|tojson }};
+ const primary = BOTS[0].port;
+ let delay=false;
+ // ------------- build grid -------------
+ function grid(){const g=document.getElementById('grid');g.innerHTML='';LOOPS.forEach((l,i)=>{const c=document.createElement('div');c.dataset.loop=l.name;c.className='card';c.innerHTML=`<span class='priv'>${l.can_listen?'👂':''}${l.can_talk?'🗣️':''}</span><span class='cnt'>👥0</span><div class='name'>${l.name}</div><input type='range' min='0' max='1' step='0.01' value='0.5' class='vol'><button class='off'>OFF</button>`;c.onclick=e=>{if(e.target===c)act('toggle',l.name)};c.querySelector('.off').onclick=e=>{e.stopPropagation();act('off',l.name)};c.querySelector('.vol').oninput=e=>{e.stopPropagation();fetch(`http://127.0.0.1:${BOTS[i% BOTS.length].port}/set_volume`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({volume:e.target.value})})};g.append(c);})}
+ // ------------- device list -------------
+ async function devices(){try{const d=await navigator.mediaDevices.enumerateDevices();const iSel=inDev,oSel=outDev;d.filter(x=>x.kind==='audioinput').forEach((d,i)=>iSel.add(new Option(d.label||`Mic ${i}`,d.deviceId)));d.filter(x=>x.kind==='audiooutput').forEach((d,i)=>oSel.add(new Option(d.label||`Spkr ${i}`,d.deviceId)));iSel.onchange=()=>chg('in',iSel.value);oSel.onchange=()=>chg('out',oSel.value);}catch(e){}}
+ function chg(t,id){fetch(`http://127.0.0.1:${primary}/device_${t}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device:id})})}
+ // ------------- waveform -------------
+ async function wave(){try{const s=await navigator.mediaDevices.getUserMedia({audio:true});const ctx=new(window.AudioContext||window.webkitAudioContext)();const src=ctx.createMediaStreamSource(s);const an=ctx.createAnalyser();an.fftSize=256;src.connect(an);const d=new Uint8Array(an.fftSize);const c=document.getElementById('wave').getContext('2d');(function draw(){requestAnimationFrame(draw);an.getByteTimeDomainData(d);c.clearRect(0,0,150,40);c.beginPath();d.forEach((v,i)=>{const x=i*150/d.length,y=(v/128)*20;i?c.lineTo(x,y):c.moveTo(x,y)});c.strokeStyle='#4a4a4a';c.stroke();})();}catch(e){}}
+ // ------------- actions -------------
+ async function act(a,l){await fetch('/api/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:a,loop:l})});refresh()}
+ const dBtn=document.getElementById('delay');
+ dBtn.onclick = async () => {
+     delay = !delay;
+     dBtn.style.background = delay ? '#43d843' : '#c22c2c';
+     await fetch('/api/command', {
+         method:'POST',
+         headers:{'Content-Type':'application/json'},
+         body:JSON.stringify({action:'delay', enabled: delay})
+     });
+ };
+ // ------------- poll -------------
+ async function refresh(){const r=await (await fetch('/api/status')).json();LOOPS.forEach(l=>{const c=document.querySelector(`[data-loop="${l.name}"]`);if(!c)return;c.querySelector('.cnt').textContent=`👥${r.user_counts[l.name]||0}`;c.classList.remove('listen','talk');if(r.states[l.name]==1)c.classList.add('listen');if(r.states[l.name]==2)c.classList.add('talk')})}
+ // ------------- init -------------
+ devices();wave();grid();refresh();setInterval(refresh,1000);
+</script></body></html>
 """
 
-CONFIG_TEMPLATE = r"""
+CONFIG_HTML = f"""
 <!DOCTYPE html>
-<html lang='en'>
-<head>
-  <meta charset='UTF-8'>
-  <meta name='viewport' content='width=device-width, initial-scale=1.0'>
-  <title>Setup</title>
-  <style>
-    body{font-family:sans-serif;background:#1e1e1e;color:#ddd;padding:40px}
-    input,select{margin:5px 0;padding:6px 8px;background:#2b2b2b;border:none;color:#ddd;border-radius:4px;width:100%%}
-    button{padding:8px 14px;margin-top:10px;background:#3c6d2d;border:none;color:#fff;border-radius:4px}
-  </style>
-</head>
+<html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>Config</title>
+<style>
+ body{{background:#1e1e1e;color:#ddd;font-family:sans-serif;padding:40px}}
+ input,select{{width:100%;padding:6px 8px;margin:6px 0;background:#2b2b2b;border:none;border-radius:4px;color:#ddd}}
+ button{{padding:8px 14px;background:#3c6d2d;border:none;color:#fff;border-radius:4px;margin-top:12px}}
+</style></head>
 <body>
-  <h2>Mission Control Config</h2>
-  <label>Server <input id='srv'></label>
-  <label>Port <input id='prt' type='number'></label>
-  <label>Bot Base <input id='bot'></label>
-  <label>Role
-    <select id='role'>
-      %s
-    </select>
-  </label>
+  <h2>Mission Control Setup</h2>
+  <label>Server<input id='srv'></label>
+  <label>Port<input id='prt' type='number'></label>
+  <label>Bot Base<input id='bot'></label>
+  <label>Role <select id='role'>{options}</select></label>
   <button id='save'>Save</button>
-  <script>
-    async function load(){
-      const cfg=await (await fetch('/api/get_config')).json();
-      document.getElementById('srv').value=cfg.server||'';
-      document.getElementById('prt').value=cfg.port||'';
-      document.getElementById('bot').value=cfg.bot_base||'';
-      document.getElementById('role').value=cfg.role||'FLIGHT';
-    }
-    async function save(){
-      const cfg={server:srv.value,port:parseInt(prt.value),bot_base:bot.value,role:role.value};
-      await fetch('/api/save_config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)});
-      location.href='/';
-    }
-    document.getElementById('save').onclick=save;
-    document.addEventListener('DOMContentLoaded',load);
-  </script>
-</body>
-</html>
-""" % ("".join(f"<option value='{r}'>{r}</option>" for r in ['FLIGHT','CAPCOM','FAO','BME','CPOO','SCIENCE','EVA']))
+<script>
+ async function load(){{
+   const cfg = await (await fetch('/api/get_config')).json();
+   document.getElementById('srv').value  = cfg.server   || '';
+   document.getElementById('prt').value  = cfg.port     || '';
+   document.getElementById('bot').value  = cfg.bot_base || '';
+   document.getElementById('role').value = cfg.role     || 'FLIGHT';
+ }}
+ async function save(){{
+   const cfg = {{
+     server:  document.getElementById('srv').value,
+     port:    +document.getElementById('prt').value,
+     bot_base:document.getElementById('bot').value,
+     role:    document.getElementById('role').value
+   }};
+   await fetch('/api/save_config', {{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(cfg)}});
+   location.href='/'
+ }}
+ document.addEventListener('DOMContentLoaded',() => {{ load(); document.getElementById('save').onclick = save; }});
+</script></body></html>
+"""
 
-# --------------------------------- routes ---------------------------------
+# ------------------------------ ROUTES -----------------------------------
 @app.route('/')
-def index():
-    rendered = TEMPLATE.replace('{{port}}', str(BOTS[0]['port'])) \
-                       .replace('{{bots}}', json.dumps(BOTS))
-    return render_template_string(rendered)
+def main_page():
+    return render_template_string(MAIN_HTML, loops=LOOPS, bots=BOTS)
 
 @app.route('/config')
-def config_page():
-    return render_template_string(CONFIG_TEMPLATE)
+def cfg_page():
+    return render_template_string(CONFIG_HTML)
 
 @app.route('/api/get_config')
-def get_config_api():
+def api_get_config():
     return jsonify(config)
 
 @app.route('/api/save_config', methods=['POST'])
-def save_config_api():
-    data = request.get_json(force=True)
-    write_config(data['server'], int(data['port']), data['bot_base'], data['role'])
-    update_config(data)
+def api_save_config():
+    cfg = request.get_json()
+    write_config(cfg)
     return '', 204
 
-@app.route('/api/config')
-def config_api():
-    return jsonify(loops=LOOPS)
+# ... define /api/waveform, /api/devices, /api/grid, /api/refresh ...
 
-@app.route('/api/status')
-def status_api():
-    counts = {l['name']: 0 for l in LOOPS}
-    states = {name: st for name, (st, _) in loop_states.items()}
-    for bot in BOTS:
-        try:
-            res = requests.get(f"http://127.0.0.1:{bot['port']}/status", timeout=0.5).json()
-            counts.update(res.get('user_counts', {}))
-            for ln, st in res.get('states', {}).items():
-                states[ln] = st
-        except Exception:
-            pass
-    return jsonify(user_counts=counts, states=states)
-
-@app.route('/api/command', methods=['POST'])
-def command_api():
-    data = request.get_json(force=True)
-    act = data.get('action')
-    loop = data.get('loop')
-    if act == 'delay':
-        for b in bot_pool.values():
-            path = 'delay_on' if data.get('enabled') else 'delay_off'
-            try:
-                requests.post(f"http://127.0.0.1:{b['port']}/{path}")
-            except:
-                pass
-        return '', 204
-
-    old_state, old_bot = loop_states.get(loop, (0, None))
-    if act == 'off':
-        if old_bot:
-            p = bot_pool[old_bot]['port']
-            requests.post(f"http://127.0.0.1:{p}/leave")
-            requests.post(f"http://127.0.0.1:{p}/mute")
-            bot_pool[old_bot]['assigned'] = None
-            bot_pool[old_bot]['last_used'] = time.time()
-        loop_states[loop] = (0, None)
-        return '', 204
-
-    cfg = next((l for l in LOOPS if l['name'] == loop), {})
-    new_state = 1 if old_state == 0 else (2 if old_state == 1 and cfg.get('can_talk') else 1)
-    if not cfg.get('can_listen'):
-        return '', 204
-
-    assigned = old_bot or find_idle_bot()
-    if not assigned:
-        return '', 204
-    port = bot_pool[assigned]['port']
-
-    if new_state == 1:
-        requests.post(f"http://127.0.0.1:{port}/join", json={'loop': loop})
-        requests.post(f"http://127.0.0.1:{port}/mute")
-    elif new_state == 2:
-        for other, (st, ob) in loop_states.items():
-            if st == 2 and ob:
-                op = bot_pool[ob]['port']
-                requests.post(f"http://127.0.0.1:{op}/mute")
-                loop_states[other] = (1, ob)
-        requests.post(f"http://127.0.0.1:{port}/join", json={'loop': loop})
-        requests.post(f"http://127.0.0.1:{port}/talk")
-
-    bot_pool[assigned]['assigned'] = loop
-    bot_pool[assigned]['last_used'] = time.time()
-    loop_states[loop] = (new_state, assigned)
-    return '', 204
-
-# --------------------------------- main ---------------------------------
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config-only', action='store_true')
     parser.add_argument('--port', type=int, default=8080)
+    parser.add_argument('--config-only', action='store_true')
     args = parser.parse_args()
-    app.run(debug=True, port=args.port)
+    if args.config_only:
+        print(f"Running in config-only mode – open http://127.0.0.1:{args.port}/config to set up.")
+        app.run(port=args.port, debug=True)
+    else:
+        app.run(port=args.port, debug=True)
