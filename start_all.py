@@ -37,7 +37,7 @@ time.sleep(2)
 # start web UI server
 ui_proc = subprocess.Popen([sys.executable, os.path.join(DIR, 'web_ui_server.py')], cwd=DIR)
 time.sleep(1)
-webbrowser.open('http://127.0.0.1:8080')
+#  webbrowser.open('http://127.0.0.1:8080')
 
 try:
     ui_proc.wait()

@@ -55,6 +55,7 @@ MAIN_HTML = r"""
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>MCC Voice Loops</title>
+<link rel="icon" type="image/png" href="{{ url_for('static', filename='logo2.png') }}">
 <style>
  :root{--bg:#1e1e1e;--panel:#2b2b2b;--txt:#ddd;--listen:#325c8d;--talk:#3c6d2d;--danger:#b41b1b}
  *{box-sizing:border-box}
@@ -81,19 +82,19 @@ MAIN_HTML = r"""
     <canvas id="wave"></canvas>
   </div>
   <div id="grid"></div>
-  <img id="logo" src="{{ url_for('static', filename='logo2.png') }}" alt="logo">
+  <img id="logo" src="{{ url_for('static', filename='logo3.png') }}" alt="logo">
 <script>
  const LOOPS = {{ loops|tojson }};
  const BOTS  = {{ bots|tojson }};
  const primary = BOTS[0].port;
  let delay=false;
  // ------------- build grid -------------
- function grid(){const g=document.getElementById('grid');g.innerHTML='';LOOPS.forEach((l,i)=>{const c=document.createElement('div');c.dataset.loop=l.name;c.className='card';c.innerHTML=`<span class='priv'>${l.can_listen?'👂':''}${l.can_talk?'🗣️':''}</span><span class='cnt'>👥0</span><div class='name'>${l.name}</div><input type='range' min='0' max='1' step='0.01' value='0.5' class='vol'><button class='off'>OFF</button>`;c.onclick=e=>{if(e.target===c)act('toggle',l.name)};c.querySelector('.off').onclick=e=>{e.stopPropagation();act('off',l.name)};c.querySelector('.vol').oninput=e=>{e.stopPropagation();fetch(`http://127.0.0.1:${BOTS[i% BOTS.length].port}/set_volume`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({volume:e.target.value})})};g.append(c);})}
+ function grid(){const g=document.getElementById('grid');g.innerHTML='';LOOPS.forEach((l,i)=>{const c=document.createElement('div');c.dataset.loop=l.name;c.className='card';c.innerHTML=`<span class='priv'>${l.can_listen?'🎧':''}${l.can_talk?'🎤':''}</span><span class='cnt'>👥0</span><div class='name'>${l.name}</div><input type='range' min='0' max='1' step='0.01' value='0.5' class='vol'><button class='off'>OFF</button>`;c.onclick=e=>{if(e.target===c)act('toggle',l.name)};c.querySelector('.off').onclick=e=>{e.stopPropagation();act('off',l.name)};c.querySelector('.vol').oninput=e=>{e.stopPropagation();fetch(`http://127.0.0.1:${BOTS[i% BOTS.length].port}/set_volume`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({volume:e.target.value})})};g.append(c);})}
  // ------------- device list -------------
  async function devices(){try{const d=await navigator.mediaDevices.enumerateDevices();const iSel=inDev,oSel=outDev;d.filter(x=>x.kind==='audioinput').forEach((d,i)=>iSel.add(new Option(d.label||`Mic ${i}`,d.deviceId)));d.filter(x=>x.kind==='audiooutput').forEach((d,i)=>oSel.add(new Option(d.label||`Spkr ${i}`,d.deviceId)));iSel.onchange=()=>chg('in',iSel.value);oSel.onchange=()=>chg('out',oSel.value);}catch(e){}}
  function chg(t,id){fetch(`http://127.0.0.1:${primary}/device_${t}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device:id})})}
  // ------------- waveform -------------
- async function wave(){try{const s=await navigator.mediaDevices.getUserMedia({audio:true});const ctx=new(window.AudioContext||window.webkitAudioContext)();const src=ctx.createMediaStreamSource(s);const an=ctx.createAnalyser();an.fftSize=256;src.connect(an);const d=new Uint8Array(an.fftSize);const c=document.getElementById('wave').getContext('2d');(function draw(){requestAnimationFrame(draw);an.getByteTimeDomainData(d);c.clearRect(0,0,150,40);c.beginPath();d.forEach((v,i)=>{const x=i*150/d.length,y=(v/128)*20;i?c.lineTo(x,y):c.moveTo(x,y)});c.strokeStyle='#4a4a4a';c.stroke();})();}catch(e){}}
+ async function wave(){try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});const ctx=new(window.AudioContext||window.webkitAudioContext)();const src=ctx.createMediaStreamSource(stream);const analyser=ctx.createAnalyser();analyser.fftSize=256;src.connect(analyser);const data=new Uint8Array(analyser.fftSize);const cvs=document.getElementById('wave');const c=cvs.getContext('2d');const H=cvs.height;const W=cvs.width;(function draw(){requestAnimationFrame(draw);analyser.getByteTimeDomainData(data);c.clearRect(0,0,W,H);c.beginPath();data.forEach((v,i)=>{const x=i*W/data.length;const y=(1-(v-128)/128)*H/2;i?c.lineTo(x,y):c.moveTo(x,y)});c.strokeStyle='#ffffff';c.lineWidth=2;c.stroke();})();}catch(e){console.error(e);}}
  // ------------- actions -------------
  async function act(a,l){await fetch('/api/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:a,loop:l})});refresh()}
  const dBtn=document.getElementById('delay');
@@ -172,6 +173,15 @@ def api_save_config():
     global config, role
     config = cfg
     role   = cfg.get("role", role)
+    requests.post("http://127.0.0.1:6001/leave")
+    requests.post("http://127.0.0.1:6002/leave")
+    requests.post("http://127.0.0.1:6003/leave")
+    bot_pool["BOT1"]['assigned'] = None
+    bot_pool["BOT1"]['last_used'] = time.time()
+    bot_pool["BOT2"]['assigned'] = None
+    bot_pool["BOT2"]['last_used'] = time.time()
+    bot_pool["BOT3"]['assigned'] = None
+    bot_pool["BOT3"]['last_used'] = time.time()
     refresh_state_from_role()
     return '', 204
 
