@@ -62,16 +62,16 @@ TEMPLATE = r"""
     #waveCanvas{width:150px;height:40px;border:1px solid #444;border-radius:4px;margin-left:auto}
 
     #grid{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;padding:18px;grid-auto-rows:220px}
-    .card{position:relative;background:var(--panel);border-radius:12px;box-shadow:0 0 6px rgba(0,0,0,.6);height:100%;overflow:hidden}
+    .card{position:relative;background:var(--panel);border-radius:12px;box-shadow:0 0 6px rgba(0,0,0,.6);height:100%%;overflow:hidden}
     .card.off{background:var(--panel)}
     .card.listen{background:var(--accent-listen)}
     .card.talk{background:var(--accent-talk)}
 
-    .loop-name{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;font-weight:600;line-height:1.2;padding:0 4px}
+    .loop-name{position:absolute;top:50%%;left:50%%;transform:translate(-50%%,-50%%);text-align:center;font-weight:600;line-height:1.2;padding:0 4px}
     .privileges{position:absolute;top:8px;left:10px;font-size:1rem}
     .count{position:absolute;top:8px;right:10px;font-size:.9rem}
 
-    .vol-slider{position:absolute;bottom:10px;left:10px;width:55%}
+    .vol-slider{position:absolute;bottom:10px;left:10px;width:55%%}
     .off-btn{position:absolute;bottom:6px;right:10px;padding:4px 10px;background:var(--danger);border:none;border-radius:4px;color:#fff;font-weight:600}
     .off-btn:hover{filter:brightness(1.1);cursor:pointer}
 
@@ -92,7 +92,7 @@ let LOOPS=[], delayEnabled=false;
 
 // ------------------- util -------------------
 const primaryPort={{port}};
-function getBot(idx){return {{bots}}[idx % {{bots}}.length];}
+function getBot(idx){return {{bots}}[idx %% {{bots}}.length];}
 
 // ------------------- init -------------------
 async function init(){
@@ -148,7 +148,7 @@ CONFIG_TEMPLATE = r"""
   <title>Setup</title>
   <style>
     body{font-family:sans-serif;background:#1e1e1e;color:#ddd;padding:40px}
-    input,select{margin:5px 0;padding:6px 8px;background:#2b2b2b;border:none;color:#ddd;border-radius:4px;width:100%}
+    input,select{margin:5px 0;padding:6px 8px;background:#2b2b2b;border:none;color:#ddd;border-radius:4px;width:100%%}
     button{padding:8px 14px;margin-top:10px;background:#3c6d2d;border:none;color:#fff;border-radius:4px}
   </style>
 </head>
