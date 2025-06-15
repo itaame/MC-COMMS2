@@ -4,4 +4,4 @@ numpy
 sounddevice
 cryptography
 psutil
-pymumble_py3
+pymumble
