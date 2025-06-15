@@ -369,7 +369,8 @@ def users():
 
 @app.route('/delay_on', methods=['POST'])
 def delay_on():
-    seconds = request.json.get('seconds', 3)
+    data = request.get_json(silent=True) or {}
+    seconds = data.get('seconds', 3)
     bot.enable_audio_delay(seconds)
     return jsonify(ok=True)
 
