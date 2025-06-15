@@ -208,8 +208,12 @@ def command_api():
         for b in bot_pool.values():
             path = 'delay_on' if data.get('enabled') else 'delay_off'
             try:
-                requests.post(f"http://127.0.0.1:{b['port']}/{path}")
-            except:
+                # send an empty JSON body so bot_server doesn't crash when
+                # accessing request.json
+                requests.post(
+                    f"http://127.0.0.1:{b['port']}/{path}", json={}
+                )
+            except Exception:
                 pass
         return '', 204
 
