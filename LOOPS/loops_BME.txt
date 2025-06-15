@@ -1,0 +1,14 @@
+[
+  {"name": "FLIGHT LOOP",        "can_listen": true,  "can_talk": true},
+  {"name": "SPACE-GROUND LOOP",  "can_listen": true,  "can_talk": false},
+  {"name": "BME LOOP",           "can_listen": true,  "can_talk": true},
+  {"name": "SCIENCE LOOP",       "can_listen": true,  "can_talk": true},
+  {"name": "SYSTEMS LOOP",       "can_listen": true,  "can_talk": true},
+  {"name": "PLANING LOOP",       "can_listen": true,  "can_talk": true},
+  {"name": "EVA LOOP",           "can_listen": true,  "can_talk": true},
+  {"name": "PR LOOP",            "can_listen": true,  "can_talk": false},
+  {"name": "OPS1 LOOP",          "can_listen": true,  "can_talk": true},
+  {"name": "OPS2 LOOP",          "can_listen": true,  "can_talk": true},
+  {"name": "OPS3 LOOP",          "can_listen": true,  "can_talk": true},
+  {"name": "Private BME LOOP",   "can_listen": true, "can_talk": true}
+]
