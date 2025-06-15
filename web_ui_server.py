@@ -1,17 +1,20 @@
 from flask import Flask, render_template_string, jsonify, request
-import json, os, requests, time
+import json, os, requests, time, sys
 
 # --------------------------------- configuration ---------------------------------
-from config_dialog import read_config
-config = read_config()
+from config_dialog import read_config, write_config
+config = read_config() or {}
 role = config.get("role", "FLIGHT")
-loop_file = os.path.join("LOOPS", f"loops_{role.upper()}.txt")
-try:
-    with open(loop_file, "r") as f:
-        LOOPS = json.load(f)
-except Exception as e:
-    print(f"Error loading {loop_file}: {e}")
-    LOOPS = []
+def load_loops(r):
+    lf = os.path.join("LOOPS", f"loops_{r.upper()}.txt")
+    try:
+        with open(lf, "r") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Error loading {lf}: {e}")
+        return []
+
+LOOPS = load_loops(role)
 
 # --------------------------------- bot pool ---------------------------------
 BOTS = [
@@ -22,6 +25,13 @@ BOTS = [
 
 bot_pool = {b['name']: {'port': b['port'], 'assigned': None, 'last_used': 0} for b in BOTS}
 loop_states = {loop['name']: (0, None) for loop in LOOPS}  # state, bot
+
+def update_config(new_cfg):
+    global config, role, LOOPS, loop_states
+    config = new_cfg
+    role = config.get("role", "FLIGHT")
+    LOOPS = load_loops(role)
+    loop_states = {loop['name']: (0, None) for loop in LOOPS}
 
 def find_idle_bot():
     idle = [(n, d) for n, d in bot_pool.items() if d['assigned'] is None]
@@ -52,16 +62,16 @@ TEMPLATE = r"""
     #waveCanvas{width:150px;height:40px;border:1px solid #444;border-radius:4px;margin-left:auto}
 
     #grid{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;padding:18px;grid-auto-rows:220px}
-    .card{position:relative;background:var(--panel);border-radius:12px;box-shadow:0 0 6px rgba(0,0,0,.6);height:100%;overflow:hidden}
+    .card{position:relative;background:var(--panel);border-radius:12px;box-shadow:0 0 6px rgba(0,0,0,.6);height:100%%;overflow:hidden}
     .card.off{background:var(--panel)}
     .card.listen{background:var(--accent-listen)}
     .card.talk{background:var(--accent-talk)}
 
-    .loop-name{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;font-weight:600;line-height:1.2;padding:0 4px}
+    .loop-name{position:absolute;top:50%%;left:50%%;transform:translate(-50%%,-50%%);text-align:center;font-weight:600;line-height:1.2;padding:0 4px}
     .privileges{position:absolute;top:8px;left:10px;font-size:1rem}
     .count{position:absolute;top:8px;right:10px;font-size:.9rem}
 
-    .vol-slider{position:absolute;bottom:10px;left:10px;width:55%}
+    .vol-slider{position:absolute;bottom:10px;left:10px;width:55%%}
     .off-btn{position:absolute;bottom:6px;right:10px;padding:4px 10px;background:var(--danger);border:none;border-radius:4px;color:#fff;font-weight:600}
     .off-btn:hover{filter:brightness(1.1);cursor:pointer}
 
@@ -82,7 +92,7 @@ let LOOPS=[], delayEnabled=false;
 
 // ------------------- util -------------------
 const primaryPort={{port}};
-function getBot(idx){return {{bots}}[idx % {{bots}}.length];}
+function getBot(idx){return {{bots}}[idx %% {{bots}}.length];}
 
 // ------------------- init -------------------
 async function init(){
@@ -129,12 +139,71 @@ document.addEventListener('DOMContentLoaded',init);
 </html>
 """
 
+CONFIG_TEMPLATE = r"""
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+  <meta charset='UTF-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+  <title>Setup</title>
+  <style>
+    body{font-family:sans-serif;background:#1e1e1e;color:#ddd;padding:40px}
+    input,select{margin:5px 0;padding:6px 8px;background:#2b2b2b;border:none;color:#ddd;border-radius:4px;width:100%%}
+    button{padding:8px 14px;margin-top:10px;background:#3c6d2d;border:none;color:#fff;border-radius:4px}
+  </style>
+</head>
+<body>
+  <h2>Mission Control Config</h2>
+  <label>Server <input id='srv'></label>
+  <label>Port <input id='prt' type='number'></label>
+  <label>Bot Base <input id='bot'></label>
+  <label>Role
+    <select id='role'>
+      %s
+    </select>
+  </label>
+  <button id='save'>Save</button>
+  <script>
+    async function load(){
+      const cfg=await (await fetch('/api/get_config')).json();
+      document.getElementById('srv').value=cfg.server||'';
+      document.getElementById('prt').value=cfg.port||'';
+      document.getElementById('bot').value=cfg.bot_base||'';
+      document.getElementById('role').value=cfg.role||'FLIGHT';
+    }
+    async function save(){
+      const cfg={server:srv.value,port:parseInt(prt.value),bot_base:bot.value,role:role.value};
+      await fetch('/api/save_config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)});
+      location.href='/';
+    }
+    document.getElementById('save').onclick=save;
+    document.addEventListener('DOMContentLoaded',load);
+  </script>
+</body>
+</html>
+""" % ("".join(f"<option value='{r}'>{r}</option>" for r in ['FLIGHT','CAPCOM','FAO','BME','CPOO','SCIENCE','EVA']))
+
 # --------------------------------- routes ---------------------------------
 @app.route('/')
 def index():
     rendered = TEMPLATE.replace('{{port}}', str(BOTS[0]['port'])) \
                        .replace('{{bots}}', json.dumps(BOTS))
     return render_template_string(rendered)
+
+@app.route('/config')
+def config_page():
+    return render_template_string(CONFIG_TEMPLATE)
+
+@app.route('/api/get_config')
+def get_config_api():
+    return jsonify(config)
+
+@app.route('/api/save_config', methods=['POST'])
+def save_config_api():
+    data = request.get_json(force=True)
+    write_config(data['server'], int(data['port']), data['bot_base'], data['role'])
+    update_config(data)
+    return '', 204
 
 @app.route('/api/config')
 def config_api():
@@ -208,4 +277,9 @@ def command_api():
 
 # --------------------------------- main ---------------------------------
 if __name__ == '__main__':
-    app.run(debug=True)
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config-only', action='store_true')
+    parser.add_argument('--port', type=int, default=8080)
+    args = parser.parse_args()
+    app.run(debug=True, port=args.port)
