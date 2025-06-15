@@ -167,10 +167,80 @@ def api_get_config():
 @app.route('/api/save_config', methods=['POST'])
 def api_save_config():
     cfg = request.get_json()
-    write_config(cfg)
+    write_config(**cfg)
+        # Update globals so the UI reflects the new role immediately
+    global config, role
+    config = cfg
+    role   = cfg.get("role", role)
+    refresh_state_from_role()
     return '', 204
 
-# ... define /api/waveform, /api/devices, /api/grid, /api/refresh ...
+@app.route('/api/status')
+def status_api():
+    counts = {l['name']: 0 for l in LOOPS}
+    states = {name: st for name, (st, _) in loop_states.items()}
+    for bot in BOTS:
+        try:
+            res = requests.get(f"http://127.0.0.1:{bot['port']}/status", timeout=0.5).json()
+            counts.update(res.get('user_counts', {}))
+            for ln, st in res.get('states', {}).items():
+                states[ln] = st
+        except Exception:
+            pass
+    return jsonify(user_counts=counts, states=states)
+
+@app.route('/api/command', methods=['POST'])
+def command_api():
+    data = request.get_json(force=True)
+    act = data.get('action')
+    loop = data.get('loop')
+    if act == 'delay':
+        for b in bot_pool.values():
+            path = 'delay_on' if data.get('enabled') else 'delay_off'
+            try:
+                requests.post(f"http://127.0.0.1:{b['port']}/{path}")
+            except:
+                pass
+        return '', 204
+
+    old_state, old_bot = loop_states.get(loop, (0, None))
+    if act == 'off':
+        if old_bot:
+            p = bot_pool[old_bot]['port']
+            requests.post(f"http://127.0.0.1:{p}/leave")
+            requests.post(f"http://127.0.0.1:{p}/mute")
+            bot_pool[old_bot]['assigned'] = None
+            bot_pool[old_bot]['last_used'] = time.time()
+        loop_states[loop] = (0, None)
+        return '', 204
+
+    cfg = next((l for l in LOOPS if l['name'] == loop), {})
+    new_state = 1 if old_state == 0 else (2 if old_state == 1 and cfg.get('can_talk') else 1)
+    if not cfg.get('can_listen'):
+        return '', 204
+
+    assigned = old_bot or find_idle_bot()
+    if not assigned:
+        return '', 204
+    port = bot_pool[assigned]['port']
+
+    if new_state == 1:
+        requests.post(f"http://127.0.0.1:{port}/join", json={'loop': loop})
+        requests.post(f"http://127.0.0.1:{port}/mute")
+    elif new_state == 2:
+        for other, (st, ob) in loop_states.items():
+            if st == 2 and ob:
+                op = bot_pool[ob]['port']
+                requests.post(f"http://127.0.0.1:{op}/mute")
+                loop_states[other] = (1, ob)
+        requests.post(f"http://127.0.0.1:{port}/join", json={'loop': loop})
+        requests.post(f"http://127.0.0.1:{port}/talk")
+
+    bot_pool[assigned]['assigned'] = loop
+    bot_pool[assigned]['last_used'] = time.time()
+    loop_states[loop] = (new_state, assigned)
+    return '', 204
+
 
 if __name__ == '__main__':
     import argparse
