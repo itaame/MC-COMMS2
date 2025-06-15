@@ -8,14 +8,14 @@ UI.
 
 This application **requires Python 3.11**. If you do not already have Python:
 
-1. Go to [https://www.python.org/downloads/](https://www.python.org/downloads/).
-2. Download the installer for **Python&nbsp;3.11** for your operating system.
+1. Go to https://www.python.org/downloads/release/python-3110/.
+2. Scroll down and Download the installer for your operating system.
 3. Run the installer. On Windows make sure **"Add Python to PATH"** is checked.
 4. Open a new terminal/command prompt and run:
    ```bash
    python --version
    ```
-   It should print `Python 3.11.x`.
+   It should print `Python 3.11`.
 
 ## 2. Install the project
 
