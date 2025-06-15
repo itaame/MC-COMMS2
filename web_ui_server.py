@@ -48,6 +48,11 @@ def find_idle_bot():
 # ------------------------------ FLASK APP --------------------------------
 app = Flask(__name__)
 
+# Track whether audio delay mode is enabled. When True, bot commands that mute
+# or leave will use delayed variants to allow any buffered audio to finish
+# playing out before the state change takes effect.
+delay_enabled = False
+
 # ------------------------------ TEMPLATES --------------------------------
 MAIN_HTML = r"""
 <!DOCTYPE html>
@@ -205,8 +210,10 @@ def command_api():
     act = data.get('action')
     loop = data.get('loop')
     if act == 'delay':
+        global delay_enabled
+        delay_enabled = bool(data.get('enabled'))
         for b in bot_pool.values():
-            path = 'delay_on' if data.get('enabled') else 'delay_off'
+            path = 'delay_on' if delay_enabled else 'delay_off'
             try:
                 # send an empty JSON body so bot_server doesn't crash when
                 # accessing request.json
@@ -221,8 +228,11 @@ def command_api():
     if act == 'off':
         if old_bot:
             p = bot_pool[old_bot]['port']
-            requests.post(f"http://127.0.0.1:{p}/leave")
-            requests.post(f"http://127.0.0.1:{p}/mute")
+            if delay_enabled:
+                requests.post(f"http://127.0.0.1:{p}/leave_after_delay", json={})
+            else:
+                requests.post(f"http://127.0.0.1:{p}/leave")
+                requests.post(f"http://127.0.0.1:{p}/mute")
             bot_pool[old_bot]['assigned'] = None
             bot_pool[old_bot]['last_used'] = time.time()
         loop_states[loop] = (0, None)
@@ -240,12 +250,18 @@ def command_api():
 
     if new_state == 1:
         requests.post(f"http://127.0.0.1:{port}/join", json={'loop': loop})
-        requests.post(f"http://127.0.0.1:{port}/mute")
+        if delay_enabled and old_state == 2:
+            requests.post(f"http://127.0.0.1:{port}/mute_after_delay", json={})
+        else:
+            requests.post(f"http://127.0.0.1:{port}/mute")
     elif new_state == 2:
         for other, (st, ob) in loop_states.items():
             if st == 2 and ob:
                 op = bot_pool[ob]['port']
-                requests.post(f"http://127.0.0.1:{op}/mute")
+                if delay_enabled:
+                    requests.post(f"http://127.0.0.1:{op}/mute_after_delay", json={})
+                else:
+                    requests.post(f"http://127.0.0.1:{op}/mute")
                 loop_states[other] = (1, ob)
         requests.post(f"http://127.0.0.1:{port}/join", json={'loop': loop})
         requests.post(f"http://127.0.0.1:{port}/talk")
