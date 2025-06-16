@@ -8,6 +8,7 @@ import sounddevice as sd
 from flask import Flask, request, jsonify
 import signal
 import sys
+from flask_cors import CORS
 
 script_dir = os.path.dirname(__file__)
 os.add_dll_directory(script_dir)
@@ -318,6 +319,7 @@ class LoopBot:
 
 # --- FLASK API SERVER ---
 app = Flask(__name__)
+CORS(app)
 bot = LoopBot()
 
 @app.route('/status')
