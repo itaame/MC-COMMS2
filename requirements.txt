@@ -5,3 +5,4 @@ sounddevice
 cryptography
 psutil
 pymumble
+flask-cors
