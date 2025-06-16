@@ -94,14 +94,14 @@ MAIN_HTML = r"""
  const primary = BOTS[0].port;
  let delay=false;
  // ------------- build grid -------------
- function grid(){const g=document.getElementById('grid');g.innerHTML='';LOOPS.forEach((l,i)=>{const c=document.createElement('div');c.dataset.loop=l.name;c.className='card';c.innerHTML=`<span class='priv'>${l.can_listen?'🎧':''}${l.can_talk?'🎤':''}</span><span class='cnt'>👥0</span><div class='name'>${l.name}</div><input type='range' min='0' max='1' step='0.01' value='0.5' class='vol'><button class='off'>OFF</button>`;c.onclick=e=>{if(e.target===c)act('toggle',l.name)};c.querySelector('.off').onclick=e=>{e.stopPropagation();act('off',l.name)};c.querySelector('.vol').oninput=e=>{e.stopPropagation();fetch(`http://127.0.0.1:${BOTS[i% BOTS.length].port}/set_volume`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({volume:e.target.value})})};g.append(c);})}
+ function grid(){const g=document.getElementById('grid');g.innerHTML='';LOOPS.forEach((l,i)=>{const c=document.createElement('div');c.dataset.loop=l.name;c.dataset.port='';c.className='card';c.innerHTML=`<span class='priv'>${l.can_listen?'🎧':''}${l.can_talk?'🎤':''}</span><span class='cnt'>👥0</span><div class='name'>${l.name}</div><input type='range' min='0' max='1' step='0.01' value='0.5' class='vol'><button class='off'>OFF</button>`;c.onclick=e=>{if(e.target===c)act('toggle',l.name)};c.querySelector('.off').onclick=e=>{e.stopPropagation();act('off',l.name)};c.querySelector('.vol').oninput=e=>{e.stopPropagation();const p=c.dataset.port||BOTS[i% BOTS.length].port;fetch(`http://127.0.0.1:${p}/set_volume`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({volume:e.target.value})})};g.append(c);})}
  // ------------- device list -------------
  async function devices(){try{const d=await navigator.mediaDevices.enumerateDevices();const iSel=inDev,oSel=outDev;d.filter(x=>x.kind==='audioinput').forEach((d,i)=>iSel.add(new Option(d.label||`Mic ${i}`,d.deviceId)));d.filter(x=>x.kind==='audiooutput').forEach((d,i)=>oSel.add(new Option(d.label||`Spkr ${i}`,d.deviceId)));iSel.onchange=()=>chg('in',iSel.value);oSel.onchange=()=>chg('out',oSel.value);}catch(e){}}
  function chg(t,id){fetch(`http://127.0.0.1:${primary}/device_${t}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device:id})})}
  // ------------- waveform -------------
  async function wave(){try{const stream=await navigator.mediaDevices.getUserMedia({audio:true});const ctx=new(window.AudioContext||window.webkitAudioContext)();const src=ctx.createMediaStreamSource(stream);const analyser=ctx.createAnalyser();analyser.fftSize=256;src.connect(analyser);const data=new Uint8Array(analyser.fftSize);const cvs=document.getElementById('wave');const c=cvs.getContext('2d');const H=cvs.height;const W=cvs.width;(function draw(){requestAnimationFrame(draw);analyser.getByteTimeDomainData(data);c.clearRect(0,0,W,H);c.beginPath();data.forEach((v,i)=>{const x=i*W/data.length;const y=(1-(v-128)/128)*H/2;i?c.lineTo(x,y):c.moveTo(x,y)});c.strokeStyle='#ffffff';c.lineWidth=2;c.stroke();})();}catch(e){console.error(e);}}
  // ------------- actions -------------
- async function act(a,l){await fetch('/api/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:a,loop:l})});refresh()}
+ async function act(a,l){const r=await fetch('/api/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:a,loop:l})});try{const j=await r.json();if('port'in j){const c=document.querySelector(`[data-loop="${l}"]`);if(c)c.dataset.port=j.port||'';}}catch(e){}refresh()}
  const dBtn=document.getElementById('delay');
  dBtn.onclick = async () => {
      delay = !delay;
@@ -113,7 +113,7 @@ MAIN_HTML = r"""
      });
  };
  // ------------- poll -------------
- async function refresh(){const r=await (await fetch('/api/status')).json();LOOPS.forEach(l=>{const c=document.querySelector(`[data-loop="${l.name}"]`);if(!c)return;c.querySelector('.cnt').textContent=`👥${r.user_counts[l.name]||0}`;c.classList.remove('listen','talk');if(r.states[l.name]==1)c.classList.add('listen');if(r.states[l.name]==2)c.classList.add('talk')})}
+ async function refresh(){const r=await (await fetch('/api/status')).json();LOOPS.forEach(l=>{const c=document.querySelector(`[data-loop="${l.name}"]`);if(!c)return;c.dataset.port=r.assignments[l.name]||'';c.querySelector('.cnt').textContent=`👥${r.user_counts[l.name]||0}`;c.classList.remove('listen','talk');if(r.states[l.name]==1)c.classList.add('listen');if(r.states[l.name]==2)c.classList.add('talk')})}
  // ------------- init -------------
  devices();wave();grid();refresh();setInterval(refresh,1000);
 </script></body></html>
@@ -196,13 +196,19 @@ def status_api():
     states = {name: st for name, (st, _) in loop_states.items()}
     for bot in BOTS:
         try:
-            res = requests.get(f"http://127.0.0.1:{bot['port']}/status", timeout=0.5).json()
+            res = requests.get(
+                f"http://127.0.0.1:{bot['port']}/status", timeout=0.5
+            ).json()
             counts.update(res.get('user_counts', {}))
             for ln, st in res.get('states', {}).items():
                 states[ln] = st
         except Exception:
             pass
-    return jsonify(user_counts=counts, states=states)
+    assignments = {
+        ln: (bot_pool[b]['port'] if b else None)
+        for ln, (_, b) in loop_states.items()
+    }
+    return jsonify(user_counts=counts, states=states, assignments=assignments)
 
 @app.route('/api/command', methods=['POST'])
 def command_api():
@@ -229,14 +235,16 @@ def command_api():
         if old_bot:
             p = bot_pool[old_bot]['port']
             if delay_enabled:
-                requests.post(f"http://127.0.0.1:{p}/leave_after_delay", json={})
+                requests.post(
+                    f"http://127.0.0.1:{p}/leave_after_delay", json={}
+                )
             else:
                 requests.post(f"http://127.0.0.1:{p}/leave")
                 requests.post(f"http://127.0.0.1:{p}/mute")
             bot_pool[old_bot]['assigned'] = None
             bot_pool[old_bot]['last_used'] = time.time()
         loop_states[loop] = (0, None)
-        return '', 204
+        return jsonify(port=None)
 
     cfg = next((l for l in LOOPS if l['name'] == loop), {})
     new_state = 1 if old_state == 0 else (2 if old_state == 1 and cfg.get('can_talk') else 1)
@@ -245,7 +253,7 @@ def command_api():
 
     assigned = old_bot or find_idle_bot()
     if not assigned:
-        return '', 204
+        return jsonify(port=None)
     port = bot_pool[assigned]['port']
 
     if new_state == 1:
@@ -269,7 +277,7 @@ def command_api():
     bot_pool[assigned]['assigned'] = loop
     bot_pool[assigned]['last_used'] = time.time()
     loop_states[loop] = (new_state, assigned)
-    return '', 204
+    return jsonify(port=port)
 
 
 if __name__ == '__main__':
