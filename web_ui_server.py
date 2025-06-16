@@ -74,7 +74,7 @@ MAIN_HTML = r"""
  .listen{background:var(--listen)} .talk{background:var(--talk)}
  .priv{position:absolute;top:8px;left:10px;font-size:1rem}
  .cnt{position:absolute;top:8px;right:10px;font-size:.9rem}
- .name{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;font-weight:600;padding:0 4px}
+.name{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;font-weight:600;padding:0 4px;user-select:none;pointer-events:none}
  .vol{position:absolute;bottom:10px;left:10px;width:55%}
  .off{position:absolute;bottom:6px;right:10px;padding:4px 10px;background:var(--danger);border:none;border-radius:4px;color:#fff;font-weight:600}
  #logo{position:fixed;bottom:10px;right:10px;height:60px;opacity:.6}
