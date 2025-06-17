@@ -11,7 +11,8 @@ import sys
 from flask_cors import CORS
 
 script_dir = os.path.dirname(__file__)
-os.add_dll_directory(script_dir)
+if hasattr(os, "add_dll_directory"):  # Windows only
+    os.add_dll_directory(script_dir)
 
 # --- Graceful Shutdown on SIGTERM/SIGINT ---
 def handle_exit(signum, frame):
