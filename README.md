@@ -15,8 +15,10 @@ This application **requires Python 3.11**. If you do not already have Python:
    ```bash
    python --version
    ```
-   It should print `Python 3.11.0`.
-
+   It should print `Python 3.11.0`, if not, try :
+   ```bash
+   python3 --version
+   ```
 ## 2. Install the project
 
 1. Download or clone this repository.
