@@ -22,8 +22,11 @@ This application **requires Python 3.11**. If you do not already have Python:
 ## 2. Install the project
 
 1. Download or clone this repository.
-2. Open a terminal in the project folder.
-3. Install the required Python packages (run again if you already installed earlier):
+   ```bash
+   git clone https://github.com/itaame/MC-COMMS2/
+   ```
+3. Open a terminal in the project folder.
+4. Install the required Python packages (run again if you already installed earlier):
    ```bash
    python -m pip install -r requirements.txt
    ```
