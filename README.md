@@ -30,16 +30,23 @@ This application **requires Python 3.11**. If you do not already have Python:
    ```bash
    python -m pip install -r requirements.txt
    ```
+   if erlier the python3 command worked, run with python3 instead:
 
 If `pip` is not recognised, reinstall Python and ensure that the option to add it to your
 system `PATH` is enabled.
 
+If using macos, run the following commands:
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+```bash
+brew install opus
+```
 ## 3. First run and configuration
-
-Run the main script:
 ```bash
 python start_all.py
 ```
+if erlier the python3 command worked, run with python3 instead:
 On the first launch, a configuration web page will open automatically. Enter the
 Mumble server address, port, bot base name and choose your role. When you submit
 that page a `run_config.json` file is created and the application will continue
